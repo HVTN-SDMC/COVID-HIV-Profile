@@ -905,7 +905,173 @@ summary_res(out.hos[[2]],lab="Hos_sim",size.hos.plwh)
 ############
 ## Begin: network analysis
 ###########################
-
+library(igraph)
+ 
+correlation_network <- function(X,Z,Vertex_Color,title , layout, threshold = c(-0.5,0.5), mfrow=c(1,2),col_edges = 'purple',vertex_label_color = 'grey35',padj_threshold=0.1){
+  Z_unique <- unique(Z)
+  par(mfrow = mfrow)
+  graph_properties <- list()
+  for (k in c(1:length(Z_unique))){
+    xk <- X
+    xk <- xk[Z==Z_unique[k],]
+    Corr_Mat_k <- cor(xk, method = "spearman")
+    Corr_Mat_k[Corr_Mat_k>threshold[1] & Corr_Mat_k<threshold[2]] <- 0
+    Mat_P_value <- cor_p_mat(df = X , corr_method = "spearman" , padj_method = c("BH"))
+    Corr_Mat_k_signif <- Corr_Mat_k
+    Corr_Mat_k_signif[Mat_P_value[[2]]>padj_threshold] <- 0
+    network=graph_from_adjacency_matrix( abs(Corr_Mat_k_signif), weighted=T, mode="undirected", diag=F)
+    num_nodes <- vcount(network)  
+    num_edges <- ecount(network)  
+    degree_distribution <- degree_distribution(network) 
+    average_degree <- degree_distribution %*% c(0:c(length(degree_distribution)-1)) 
+    density <- graph.density(network)
+    diameter <- diameter(network)
+    clustering_coefficient <- transitivity(network, type = "local" , isolates = "zero")  
+    average_clustering_coefficient <- transitivity(network, type = "global", isolates = "zero")
+    graph_properties[[k]] <- c(Z_unique[k],
+                               paste('',num_nodes,num_edges),
+                               paste('',average_degree),
+                               paste('',average_clustering_coefficient))
+    ceb <- cluster_edge_betweenness(network) 
+    plot(ceb, network , col = col_edges, main = paste0(Z_unique[k]),vertex.size=11, 
+         cex = 2,edge.curved=0.4, vertex.label.color =  vertex_label_color)
+  }
+  return(graph_properties)
+}
+ 
+ 
+cor_p_mat <- function(df,corr_method,padj_method){
+  p <- length(df[1,])
+  p1 <- p-1
+  Mat_P_value <- matrix(0,p,p)
+  for (k1 in c(1:p1)){
+    for (k2 in c(k1:p)){
+      res_k1k2 <- cor.test(df[,k1], df[,k2], method=corr_method)
+      Mat_P_value[k1,k2] <- res_k1k2$p.value
+      Mat_P_value[k2,k1] <- res_k1k2$p.value
+    }
+  }
+  Vec_P_value <- matrix(0,(p-1)*p/2,1)
+  ind <- 1
+  for (k1 in c(1:p1)){
+    k11 <- k1+1
+    for (k2 in c(k11:p)){
+      Vec_P_value[ind] <- Mat_P_value[k1,k2]
+      ind <- ind+1
+    }
+  }
+  Mat_P_value_adj <- matrix(0,p,p)
+  p_adj <- p.adjust(Vec_P_value,method = padj_method)
+  ind <- 1
+  for (k1 in c(1:p1)){
+    k11 <- k1+1
+    for (k2 in c(k11:p)){
+      Mat_P_value_adj[k1,k2] <- p_adj[ind]
+      Mat_P_value_adj[k2,k1] <- p_adj[ind]
+      ind <- ind+1
+    }
+  }
+  return(list(Mat_P_value,Mat_P_value_adj))
+}
+ 
+CSV_color <- read.csv(file = 'immune_markers_color.csv')
+CSV_color <- CSV_color[order(CSV_color$variable_name),]
+CSV_color$variable_name
+CSV_color_code2 <- matrix(0,length(CSV_color$variable_name),1)
+for (i in c(1:length(CSV_color$variable_name))){
+  CSV_color_code2[i] <- paste0('#',CSV_color$code[i])
+}
+CSV_color$CSV_color_code2 <- CSV_color_code2
+Var_number <- row.names(CSV_color)  
+X_hiv <- df_merged[,-c(1,c(46:58),c(71:118))]
+X_hiv <- X_hiv[ , order(names(X_hiv))]
+rbind(names(X_hiv),CSV_color[,1])
+names(X_hiv) <- Var_number
+vertex_label_color <- matrix('grey99',length(Var_number),1)
+vertex_label_color[Var_number %in% c(28:42)] <- 'grey35'
+ColEdges <- alpha(CSV_color$CSV_color_code2,0.9)
+correlation_network(X=X_hiv,Z = df_0$hiv_text,
+                    Vertex_Color = alpha(c("orange","navyblue"),0.5),title=c("") , 
+                    layout = layout_nicely,  
+                    threshold = c(-0.70,0.70), 
+                    mfrow = c(1,2),
+                    col_edges = ColEdges, vertex_label_color = vertex_label_color)
+correlation_network(X=X_hiv,Z = 0*df_0$hiv,
+                    Vertex_Color = alpha(c("orange","navyblue"),0.5),title=c("") , 
+                    layout = layout_nicely,  
+                    threshold = c(-0.70,0.70),  mfrow = c(1,2),
+                    col_edges = alpha(CSV_color$CSV_color_code2,0.9), vertex_label_color = vertex_label_color)
+ 
+HIV_Severity <- table(df_0$severity,df_0$hiv_text)
+correlation_network(X=X_hiv,Z = paste0(df_0$hiv_text,' and ',df_0$severity),
+                    Vertex_Color = alpha(c("orange","navyblue"),0.5),title=c("") , 
+                    layout = layout_nicely,  
+                    threshold = c(-0.70,0.70),  mfrow = c(2,3),
+                    col_edges = alpha(CSV_color$CSV_color_code2,0.9), 
+                    vertex_label_color = vertex_label_color,
+                    padj_threshold = 0.1)
+correlation_network(X=X_hiv,Z = paste0(df_0$hiv_text,' and ',df_0$severity),
+                    Vertex_Color = alpha(c("orange","navyblue"),0.5),title=c("") , 
+                    layout = layout_nicely,  
+                    threshold = c(-0.70,0.70),  mfrow = c(2,3),
+                    col_edges = alpha(CSV_color$CSV_color_code2,0.9), 
+                    vertex_label_color = vertex_label_color,
+                    padj_threshold = 1.1)
+ 
+ 
+ 
+ 
+circular_diff_networks <- function(list_output , vertex.label = names(X_2) , vertex.label.color = vertex_label_color){
+  par(mfrow=c(1,2))
+  width_matrix <- list_output[[1]]
+  adj_matrix <- matrix(1,ncol(width_matrix),ncol(width_matrix)) #list_output[[1]]
+  colnames(adj_matrix) <- names(X_2)
+  rownames(adj_matrix) <- names(X_2)
+  graph <- graph_from_adjacency_matrix(adj_matrix, mode = "undirected", diag = FALSE)
+  layout <- layout.circle(graph)
+  layout[, 1] <- -layout[, 1]
+  #layout[, 2] <- -layout[, 2]
+  edge_widths <- 10*width_matrix[get.edgelist(graph)]^1
+  edge_color0 <- alpha(c('gold2','thistle4'),0.45)
+  edge_color <- edge_color0[(sign(list_output[[2]])+1)/2+1] #alpha('grey35',0.5)
+  plot(graph, 
+       layout = layout, 
+       vertex.label = vertex.label, #c(1:length(names(X_2))), #names(X_2), 
+       vertex.size = 11, 
+       vertex.color = alpha(CSV_color$CSV_color_code2,0.9),
+       vertex.frame.color = "black", 
+       edge.width = edge_widths,
+       edge.color = edge_color,
+       edge.curved=0.4,
+       vertex.label.cex = 1.35,
+       vertex.label.color =  vertex.label.color, #'grey35',  #vertex_label_color, #'grey35', vertex_label_color,
+       main = list_output[[7]][1]
+  )
+  width_matrix <- list_output[[3]]
+  adj_matrix <- matrix(1,ncol(width_matrix),ncol(width_matrix)) 
+  graph <- graph_from_adjacency_matrix(adj_matrix, mode = "undirected", diag = FALSE)
+  colnames(adj_matrix) <- names(X_2)
+  rownames(adj_matrix) <- names(X_2)
+  layout <- layout.circle(graph)
+  layout[, 1] <- -layout[, 1]
+  #layout[, 2] <- -layout[, 2]
+  V(graph)$vertex.label[2] <- 200
+  edge_widths <- 10*width_matrix[get.edgelist(graph)]^1
+  edge_color <- edge_color0[(sign(list_output[[4]])+1)/2+1] #alpha('grey35',0.5)
+  plot(graph, 
+       layout = layout, 
+       vertex.label = vertex.label, #c(1:length(names(X_2))), #names(X_2), 
+       vertex.size = 11, 
+       vertex.color = alpha(CSV_color$CSV_color_code2,0.9),
+       vertex.frame.color = "black", 
+       edge.width = edge_widths,
+       edge.color = edge_color,
+       edge.curved=0.3,
+       vertex.label.cex = 1.35,
+       vertex.label.color = vertex.label.color, #'grey35', vertex_label_color,
+       main = list_output[[7]][2]
+  )
+}
 
 ############
 ## End: network analysis
